@@ -1,0 +1,8 @@
+{
+  "name": "Hotel Anandam",
+  "description": "A premium food delivery application for Hotel Anandam, featuring famous dishes like Kothu Parotta, Egg Noodles, and more with a seamless ordering experience.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
+}
