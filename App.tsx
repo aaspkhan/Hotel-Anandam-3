@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AppTab, CartItem, FoodItem } from './types';
 import { FOOD_ITEMS } from './constants';
@@ -219,14 +218,55 @@ const App: React.FC = () => {
   };
 
   const startListening = () => {
+    if (isListening) return;
+
+    // Support for standard API and WebKit prefix (iOS Safari)
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitRecognition;
-    if (SpeechRecognition) {
-      setIsListening(true);
+    
+    if (!SpeechRecognition) {
+      triggerNotification("Voice search not supported on this browser", 'error');
+      return;
+    }
+
+    try {
       const recognition = new SpeechRecognition();
-      recognition.onend = () => setIsListening(false);
-      recognition.onresult = (e: any) => setSearchQuery(e.results[0][0].transcript);
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setSearchQuery(transcript);
+        // Optional: Auto-stop or just let it end naturally
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error', event.error);
+        setIsListening(false);
+        if (event.error === 'not-allowed') {
+          triggerNotification("Mic access denied. Enable permissions in settings.", 'error');
+        } else if (event.error === 'no-speech') {
+          triggerNotification("No speech detected. Please try again.", 'info');
+        } else {
+          // Ignore minor errors or just log
+          // triggerNotification("Voice search error", 'error');
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
       recognition.start();
-    } else triggerNotification("Voice search not supported", 'error');
+    } catch (err) {
+      console.error(err);
+      setIsListening(false);
+      triggerNotification("Failed to start microphone", 'error');
+    }
   };
 
   if (authLoading || menuLoading) {
@@ -246,9 +286,25 @@ const App: React.FC = () => {
              <h1 className="text-lg sm:text-2xl font-black whitespace-nowrap tracking-tight">Hotel Anandam</h1>
           </div>
           <div className="flex-1 relative max-w-lg">
-            <input type="text" placeholder="Find a dish..." className="w-full pl-9 pr-9 py-2 sm:py-2.5 rounded-2xl bg-orange-400/30 text-white placeholder-orange-100 border-none focus:bg-white focus:text-gray-800 text-sm transition-all" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-orange-100"></i>
-            <button onClick={startListening} className={`absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full transition-colors ${isListening ? 'text-red-300 animate-pulse' : 'text-orange-100 hover:text-white'}`}><i className={`fas ${isListening ? 'fa-circle' : 'fa-microphone'}`}></i></button>
+            <input 
+              type="text" 
+              placeholder="Find a dish..." 
+              className="w-full pl-9 pr-9 py-2 sm:py-2.5 rounded-2xl bg-orange-400/30 text-white placeholder-orange-100 border-none focus:bg-white focus:text-gray-800 text-sm transition-all outline-none" 
+              value={searchQuery} 
+              onChange={(e) => setSearchQuery(e.target.value)} 
+            />
+            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-orange-100 pointer-events-none"></i>
+            <button 
+              onClick={startListening} 
+              className={`absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-full transition-all ${
+                isListening 
+                  ? 'bg-red-500 text-white animate-pulse ring-2 ring-red-300' 
+                  : 'text-orange-100 hover:text-white active:scale-95'
+              }`}
+              title="Voice Search"
+            >
+              <i className={`fas ${isListening ? 'fa-stop' : 'fa-microphone'}`}></i>
+            </button>
           </div>
         </div>
       </header>
@@ -260,7 +316,7 @@ const App: React.FC = () => {
         {activeTab === 'admin' && <AdminTab onClose={() => setActiveTab('profile')} />}
       </main>
       {showNotification && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-3 rounded-2xl text-xs shadow-2xl z-50 flex items-center animate-in fade-in slide-in-from-bottom-4 ${showNotification.type === 'error' ? 'bg-red-600 text-white' : showNotification.type === 'success' ? 'bg-green-600 text-white' : 'bg-gray-900 text-white'}`}>
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 px-6 py-3 rounded-2xl text-xs font-bold shadow-2xl z-50 flex items-center animate-in fade-in slide-in-from-bottom-4 ${showNotification.type === 'error' ? 'bg-red-600 text-white' : showNotification.type === 'success' ? 'bg-green-600 text-white' : 'bg-gray-900 text-white'}`}>
           <i className={`fas mr-2 ${showNotification.type === 'error' ? 'fa-circle-exclamation' : showNotification.type === 'success' ? 'fa-circle-check' : 'fa-info-circle text-orange-400'}`}></i>
           {showNotification.msg}
         </div>

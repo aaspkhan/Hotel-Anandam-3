@@ -13,15 +13,25 @@ const LandingPage: React.FC = () => {
 
   const handleGoogleSignIn = async () => {
     try {
+      setLoading(true);
+      // Ensure we redirect back to the current origin accurately
+      const redirectUrl = window.location.origin;
+      console.log("Redirecting to:", redirectUrl);
+      
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin
+          redirectTo: redirectUrl,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         }
       });
       if (error) throw error;
     } catch (error: any) {
       handleAuthError(error);
+      setLoading(false);
     }
   };
 
@@ -66,15 +76,12 @@ const LandingPage: React.FC = () => {
   const handleAuthError = (error: any) => {
     let errorText = error.message || 'An unexpected error occurred.';
     
-    // Only log strictly unexpected system errors to console
-    // We filter out common user errors to keep console clean
     if (!errorText.includes('Incorrect email') && 
         !errorText.includes('Rate limit') && 
         !errorText.includes('confirmed')) {
       console.warn('Auth System Error:', error);
     }
 
-    // Handle "Load failed" specifically (Network issues)
     if (errorText === 'Load failed' || errorText === 'Failed to fetch') {
       errorText = 'Network error: Unable to connect. Please check your internet connection.';
     }
@@ -109,7 +116,7 @@ const LandingPage: React.FC = () => {
         
         if (error) {
           if (error.status === 429) {
-            setMessage({ type: 'error', text: 'Rate limit exceeded. Please wait a few minutes before trying again.' });
+            setMessage({ type: 'error', text: 'Rate limit exceeded. Please wait a few minutes.' });
             setLoading(false);
             return;
           }
@@ -120,7 +127,7 @@ const LandingPage: React.FC = () => {
           if (!data.session) {
             setMessage({ 
               type: 'success', 
-              text: `Confirmation email sent to ${email}. You must click the link in that email to activate your account.` 
+              text: `Confirmation email sent to ${email}. You must activate your account via the link in your email.` 
             });
           } else {
             setMessage({ type: 'success', text: 'Registration successful! Logging you in...' });
@@ -133,19 +140,13 @@ const LandingPage: React.FC = () => {
         });
         
         if (error) {
-          // Handle expected errors directly without throwing exceptions
           if (error.message.includes('confirm your email') || error.message.includes('Email not confirmed')) {
-            setMessage({ type: 'error', text: 'Your email is not confirmed yet. Check your inbox for the link we sent earlier.' });
+            setMessage({ type: 'error', text: 'Email not confirmed. Please check your inbox for the activation link.' });
             setLoading(false);
             return;
           }
           if (error.message.includes('Invalid login credentials')) {
-            setMessage({ type: 'error', text: 'Incorrect email or password. Please try again.' });
-            setLoading(false);
-            return;
-          }
-          if (error.status === 429) {
-            setMessage({ type: 'error', text: 'Too many login attempts. Please try again in 5 minutes.' });
+            setMessage({ type: 'error', text: 'Incorrect email or password.' });
             setLoading(false);
             return;
           }
@@ -164,7 +165,7 @@ const LandingPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 relative overflow-hidden text-gray-800">
       <div className="absolute top-[-10%] right-[-10%] w-64 h-64 bg-orange-100 rounded-full blur-3xl opacity-50"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-80 h-80 bg-orange-50 rounded-full blur-3xl opacity-50"></div>
 
@@ -174,12 +175,12 @@ const LandingPage: React.FC = () => {
             <i className="fas fa-utensils text-3xl"></i>
           </div>
           <h1 className="text-4xl font-black text-gray-900 mb-2 tracking-tight">Hotel Anandam</h1>
-          <p className="text-gray-500 font-medium">
+          <p className="text-gray-500 font-medium italic">
             {isForgotPassword 
               ? 'Reset Password' 
               : isSignUp 
-                ? 'Create your food account' 
-                : 'Order your favorite dishes in Madurai'}
+                ? 'Join our food community' 
+                : 'Premium Food Delivery, Madurai'}
           </p>
         </div>
 
@@ -228,7 +229,7 @@ const LandingPage: React.FC = () => {
 
                   <div className="relative flex items-center justify-center mb-6">
                     <div className="flex-grow border-t border-gray-100"></div>
-                    <span className="flex-shrink mx-4 text-gray-400 text-[10px] font-black uppercase tracking-widest">Or credentials</span>
+                    <span className="flex-shrink mx-4 text-gray-400 text-[10px] font-black uppercase tracking-widest">Or Secure Login</span>
                     <div className="flex-grow border-t border-gray-100"></div>
                   </div>
                 </>
@@ -240,7 +241,7 @@ const LandingPage: React.FC = () => {
                     <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 mb-2">Full Name</label>
                     <input
                       type="text"
-                      placeholder="Your name"
+                      placeholder="Your Name"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       className="w-full px-6 py-4 bg-gray-50 border-none rounded-2xl focus:ring-2 focus:ring-orange-500 transition-all font-medium text-gray-800"
@@ -309,7 +310,7 @@ const LandingPage: React.FC = () => {
                   </button>
                 ) : (
                   <p className="text-gray-500 text-sm font-medium">
-                    {isSignUp ? 'Already have an account?' : "Don't have an account?"}
+                    {isSignUp ? 'Already a member?' : "Don't have an account?"}
                     <button
                       onClick={() => { setIsSignUp(!isSignUp); setMessage(null); }}
                       className="ml-2 text-orange-500 font-bold hover:underline"
@@ -331,16 +332,19 @@ const LandingPage: React.FC = () => {
                   onClick={handleResendEmail}
                   className="block mx-auto mt-2 text-orange-600 font-bold hover:underline"
                 >
-                  Resend Confirmation Now
+                  Resend Confirmation
                 </button>
               )}
             </div>
           )}
         </div>
-
-        <p className="text-center mt-8 text-gray-400 text-[10px] font-medium px-8 uppercase tracking-widest leading-loose">
-          Securely powered by Hotel Anandam Cloud.
-        </p>
+        
+        <div className="mt-8 bg-blue-50/50 p-4 rounded-2xl border border-blue-100 text-center">
+           <p className="text-[10px] text-blue-600 font-black uppercase tracking-widest leading-relaxed">
+             Google Auth Redirecting to localhost? <br/>
+             <span className="text-gray-500 font-medium normal-case">Add <code className="bg-blue-100 px-1 rounded">{window.location.origin}</code> to your Supabase "Redirect URLs" list.</span>
+           </p>
+        </div>
       </div>
     </div>
   );

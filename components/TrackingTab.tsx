@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Order } from '../types';
 import { supabase } from '../supabase';
@@ -11,6 +10,7 @@ interface TrackingTabProps {
 const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tokens, setTokens] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (user?.email) {
@@ -42,12 +42,40 @@ const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setOrders(data || []);
+      const ordersList = data || [];
+      setOrders(ordersList);
+      fetchTokens(ordersList);
     } catch (err) {
       console.error('Error fetching tracking history:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchTokens = async (ordersList: Order[]) => {
+    const tokenMap: Record<string, number> = {};
+    
+    // We fetch tokens in parallel.
+    // This calculates the daily token by counting how many orders were created before this one on the same day.
+    await Promise.all(ordersList.map(async (order) => {
+      try {
+        // Use UTC date part matching AdminTab logic
+        const datePart = order.created_at.split('T')[0]; 
+        const startOfDay = `${datePart}T00:00:00.000Z`;
+        
+        const { count } = await supabase
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .gte('created_at', startOfDay)
+          .lte('created_at', order.created_at);
+          
+        if (count !== null) tokenMap[order.id] = count;
+      } catch (e) {
+        console.error("Failed to fetch token for order", order.id);
+      }
+    }));
+    
+    setTokens(prev => ({...prev, ...tokenMap}));
   };
 
   return (
@@ -71,7 +99,16 @@ const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
         <div className="space-y-6">
           {orders.map((order) => (
             <div key={order.id} className="bg-white rounded-[2rem] p-6 border border-gray-50 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow">
-              <div className="flex justify-between items-start mb-6">
+              
+              {/* Token Badge */}
+              {tokens[order.id] && (
+                <div className="absolute top-0 right-0 bg-gray-900 text-white px-4 py-2 rounded-bl-2xl shadow-sm z-10 border-b border-l border-white/10">
+                   <p className="text-[8px] uppercase tracking-widest opacity-70 font-bold mb-0.5">Token</p>
+                   <p className="text-xl font-black leading-none text-center">#{tokens[order.id]}</p>
+                </div>
+              )}
+
+              <div className="flex justify-between items-start mb-6 pr-16">
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${
@@ -89,10 +126,6 @@ const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
                   <p className="text-[10px] text-gray-400 font-bold uppercase mt-2 tracking-tighter">
                     ID: {order.id.slice(0, 8)} • {new Date(order.created_at).toLocaleDateString()} at {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xl font-black text-orange-600">₹{order.total_amount}</p>
-                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{order.payment_method}</p>
                 </div>
               </div>
               
@@ -112,6 +145,9 @@ const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
                      <i className="fas fa-location-dot mr-1.5 text-orange-400"></i>
                      {order.location}
                    </div>
+                   <div className="text-right">
+                    <p className="text-lg font-black text-orange-600">₹{order.total_amount}</p>
+                  </div>
                 </div>
               </div>
             </div>

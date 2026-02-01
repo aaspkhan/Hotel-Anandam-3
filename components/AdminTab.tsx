@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
 import { Order, OrderStatus } from '../types';
 import { jsPDF } from "jspdf";
@@ -11,18 +11,55 @@ interface AdminTabProps {
 const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
+    // Initialize audio for new order notifications
+    audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+    
     fetchOrders();
-    const subscription = supabase
-      .channel('admin-orders-channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOrders)
-      .subscribe();
+
+    // 1. Real-time Subscription
+    const channel = supabase
+      .channel('kitchen-dashboard')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        (payload) => {
+          console.log('Change received!', payload);
+          fetchOrders();
+          
+          // Play sound only on new orders
+          if (payload.eventType === 'INSERT') {
+            playNotificationSound();
+          }
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Kitchen Dashboard: Connected to real-time updates');
+        }
+      });
+
+    // 2. Fallback Polling (Every 30 seconds)
+    // Ensures data consistency even if the socket disconnects temporarily
+    const intervalId = setInterval(() => {
+      fetchOrders();
+    }, 30000);
 
     return () => {
-      subscription.unsubscribe();
+      supabase.removeChannel(channel);
+      clearInterval(intervalId);
     };
   }, []);
+
+  const playNotificationSound = () => {
+    if (audioRef.current) {
+      audioRef.current.play().catch(error => {
+        console.warn("Audio play failed (user interaction might be needed first):", error);
+      });
+    }
+  };
 
   const fetchOrders = async () => {
     try {
@@ -46,6 +83,8 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
         .update({ status: newStatus })
         .eq('id', orderId);
       if (error) throw error;
+      // We don't strictly need to fetchOrders here because the subscription will catch the UPDATE event,
+      // but calling it ensures instant UI feedback for the user who clicked.
       fetchOrders();
     } catch (err) {
       console.error('Status update failed:', err);
@@ -53,9 +92,9 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
   };
 
   const getDailyToken = (order: Order) => {
-    const today = new Date(order.created_at).toISOString().split('T')[0];
+    const orderDate = new Date(order.created_at).toISOString().split('T')[0];
     const todayOrdersSorted = [...orders]
-      .filter(o => o.created_at.startsWith(today))
+      .filter(o => o.created_at.startsWith(orderDate))
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     
     const tokenIdx = todayOrdersSorted.findIndex(o => o.id === order.id);
@@ -153,8 +192,8 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
             .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 15px; }
             .footer { border-top: 1px dashed #000; padding-top: 10px; margin-top: 15px; text-align: center; font-size: 12px; }
             .total { font-weight: bold; font-size: 18px; margin-top: 10px; display: flex; justify-content: space-between; }
-            .info { font-size: 12px; margin-bottom: 15px; }
-            .bold { font-weight: bold; }
+            .info { font-size: 12px; margin-bottom: 15px; line-height: 1.6; }
+            .bold-line { font-weight: 900; font-size: 14px; }
             .token-box { font-size: 32px; font-weight: 900; margin: 10px 0; border: 3px solid #000; display: inline-block; padding: 10px 25px; }
           </style>
         </head>
@@ -168,8 +207,8 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
           <div class="info">
             <div>Order ID: #${order.id.slice(0, 8)}</div>
             <div>Date: ${new Date(order.created_at).toLocaleString()}</div>
-            <div class="bold">Customer Number: ${order.phone}</div>
-            <div class="bold">Location: ${order.location}</div>
+            <div class="bold-line">Customer Number: ${order.phone}</div>
+            <div class="bold-line">Location: ${order.location}</div>
           </div>
           <div style="border-bottom: 1px solid #000; margin-bottom: 10px;"></div>
           ${itemsHtml}
@@ -218,21 +257,21 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
               </span>
             </h2>
-            <p className="text-gray-500 font-medium">Real-time Operations</p>
+            <p className="text-gray-500 font-medium italic">Operations Control Center</p>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Revenue</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Today Sales</p>
             <p className="text-lg font-black text-orange-600">₹{revenue}</p>
           </div>
           <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pending</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">New Orders</p>
             <p className="text-lg font-black text-amber-500">{pendingCount}</p>
           </div>
           <div className="bg-white p-3 sm:p-4 rounded-2xl border border-gray-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Delivered</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Served</p>
             <p className="text-lg font-black text-green-500">{completedCount}</p>
           </div>
         </div>
@@ -240,19 +279,19 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
 
       <div className="space-y-6">
         <div className="flex items-center justify-between px-1">
-          <h3 className="text-xl font-bold text-gray-800">Order Queue</h3>
+          <h3 className="text-xl font-bold text-gray-800">Live Order Queue</h3>
           <div className="flex items-center space-x-4">
             <button 
               onClick={handleDownloadReport} 
               className="flex items-center px-4 py-2 bg-gray-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-sm active:scale-95"
             >
-              <i className="fas fa-file-pdf mr-2"></i> PDF Report
+              <i className="fas fa-file-pdf mr-2 text-orange-400"></i> Download Report
             </button>
             <button 
               onClick={fetchOrders} 
               className="flex items-center px-4 py-2 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-100 transition-all active:scale-95"
             >
-              <i className="fas fa-sync-alt mr-2"></i> Refresh
+              <i className="fas fa-sync-alt mr-2"></i> Sync
             </button>
           </div>
         </div>
@@ -264,9 +303,9 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
         ) : orders.length === 0 ? (
           <div className="bg-white p-20 rounded-[2.5rem] border border-dashed border-gray-200 text-center shadow-sm">
             <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6">
-              <i className="fas fa-receipt text-3xl text-gray-200"></i>
+              <i className="fas fa-utensils text-3xl text-gray-200"></i>
             </div>
-            <p className="text-gray-400 font-bold">Waiting for new orders...</p>
+            <p className="text-gray-400 font-bold">Waiting for first order of the day...</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -338,7 +377,7 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
                         className="w-full bg-orange-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-orange-100 active:scale-95 transition-all flex items-center justify-center group"
                       >
                         <i className="fas fa-check-circle mr-2 group-hover:rotate-12 transition-transform"></i>
-                        Accept & Bill
+                        Accept Order
                       </button>
                     )}
                     {order.status === 'Preparing' && (
@@ -346,8 +385,8 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
                         onClick={() => updateOrderStatus(order.id, 'Ready')}
                         className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-100 active:scale-95 transition-all flex items-center justify-center"
                       >
-                        <i className="fas fa-bell mr-2"></i>
-                        Order Ready
+                        <i className="fas fa-utensils mr-2"></i>
+                        Mark as Ready
                       </button>
                     )}
                     {order.status === 'Ready' && (
@@ -355,8 +394,8 @@ const AdminTab: React.FC<AdminTabProps> = ({ onClose }) => {
                         onClick={() => updateOrderStatus(order.id, 'Delivered')}
                         className="w-full bg-gray-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center"
                       >
-                        <i className="fas fa-truck mr-2"></i>
-                        Confirm Delivery
+                        <i className="fas fa-truck mr-2 text-orange-400"></i>
+                        Confirm Delivered
                       </button>
                     )}
                   </div>
