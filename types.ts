@@ -18,6 +18,7 @@ export type OrderStatus = 'Pending Acceptance' | 'Preparing' | 'Ready' | 'Delive
 export interface Order {
   id: string;
   created_at: string;
+  user_id: string;
   user_email: string;
   phone: string;
   location: string;

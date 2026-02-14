@@ -13,15 +13,17 @@ const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
   const [tokens, setTokens] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (user?.email) {
+    if (user?.id) {
       fetchOrderHistory();
+      
+      // Subscribe to changes for this specific user ID
       const subscription = supabase
         .channel('user-tracking-channel')
         .on('postgres_changes', { 
           event: 'UPDATE', 
           schema: 'public', 
           table: 'orders', 
-          filter: `user_email=eq.${user.email}` 
+          filter: `user_id=eq.${user.id}` 
         }, fetchOrderHistory)
         .subscribe();
       
@@ -32,21 +34,22 @@ const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
   }, [user]);
 
   const fetchOrderHistory = async () => {
-    if (!user?.email) return;
+    if (!user?.id) return;
     setLoading(true);
+    
     try {
       const { data, error } = await supabase
         .from('orders')
         .select('*')
-        .eq('user_email', user.email)
+        .eq('user_id', user.id) // Filter by ID now that the column exists
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      const ordersList = data || [];
-      setOrders(ordersList);
-      fetchTokens(ordersList);
+      if (!error && data) {
+        setOrders(data);
+        fetchTokens(data);
+      }
     } catch (err) {
-      console.error('Error fetching tracking history:', err);
+      console.warn('Error fetching tracking history from DB:', err);
     } finally {
       setLoading(false);
     }
@@ -55,11 +58,8 @@ const TrackingTab: React.FC<TrackingTabProps> = ({ user }) => {
   const fetchTokens = async (ordersList: Order[]) => {
     const tokenMap: Record<string, number> = {};
     
-    // We fetch tokens in parallel.
-    // This calculates the daily token by counting how many orders were created before this one on the same day.
     await Promise.all(ordersList.map(async (order) => {
       try {
-        // Use UTC date part matching AdminTab logic
         const datePart = order.created_at.split('T')[0]; 
         const startOfDay = `${datePart}T00:00:00.000Z`;
         

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AppTab, CartItem, FoodItem } from './types';
+import { AppTab, CartItem, FoodItem, Order } from './types';
 import { FOOD_ITEMS } from './constants';
 import HomeTab from './components/HomeTab';
 import OrderTab from './components/OrderTab';
@@ -81,7 +81,7 @@ const App: React.FC = () => {
         .order('created_at', { ascending: false });
       
       if (error) {
-        if (error.code === 'PGRST205') {
+        if (error.code === 'PGRST205' || error.message.includes('relation "products" does not exist')) {
           setDbError("Database table 'products' missing.");
         }
         throw error;
@@ -141,17 +141,25 @@ const App: React.FC = () => {
 
     try {
       const { error } = await supabase.from('orders').insert([{
+        user_id: session.user.id,
         user_email: session.user.email,
-        phone, location, items: cart, total_amount: total,
-        status: 'Pending Acceptance', payment_method: paymentMethod
+        phone, 
+        location, 
+        items: cart, 
+        total_amount: total,
+        status: 'Pending Acceptance', 
+        payment_method: paymentMethod
       }]);
+      
       if (error) throw error;
+      
       setTimeout(() => { 
         setOrderStatus('success'); 
         setCart([]); 
       }, 1500);
-    } catch (err) {
-      triggerNotification("Order failed. Please retry.", 'error');
+    } catch (err: any) {
+      console.error('Order placement error:', err);
+      triggerNotification(`Order failed: ${err.message || 'Database error'}`, 'error');
       setOrderStatus('idle');
     }
   };
@@ -165,7 +173,7 @@ const App: React.FC = () => {
         triggerNotification(`${product.name} saved!`, 'success');
       }
     } catch (err: any) {
-      triggerNotification("Table missing - item saved only for this session", 'error');
+      triggerNotification("Table missing - item saved locally", 'info');
       const tempItem = { ...product, id: Math.random().toString(36).substr(2, 9), inStock: true };
       setItems(prev => [tempItem, ...prev]);
     }
@@ -178,7 +186,7 @@ const App: React.FC = () => {
       setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
       triggerNotification("Updated successfully", 'success');
     } catch (err) {
-      triggerNotification("Update failed - local only", 'error');
+      triggerNotification("Update failed - local only", 'info');
       setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
     }
   };
@@ -190,7 +198,7 @@ const App: React.FC = () => {
       setItems(prev => prev.filter(item => item.id !== id));
       triggerNotification("Item removed", 'success');
     } catch (err) {
-      triggerNotification("Delete failed - local only", 'error');
+      triggerNotification("Delete failed - local only", 'info');
       setItems(prev => prev.filter(item => item.id !== id));
     }
   };
@@ -205,7 +213,7 @@ const App: React.FC = () => {
       setItems(prev => prev.map(i => i.id === id ? { ...i, inStock: newStatus } : i));
       triggerNotification(`${item.name} is now ${newStatus ? 'In Stock' : 'Out of Stock'}`, 'info');
     } catch (err) {
-      triggerNotification("Stock update failed - local only", 'error');
+      triggerNotification("Stock update failed - local only", 'info');
       setItems(prev => prev.map(i => i.id === id ? { ...i, inStock: newStatus } : i));
     }
   };
